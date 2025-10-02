@@ -50,7 +50,6 @@ class FastMultiply:
         rows = [0]*self.n #n words 
         for r in range(self.n):
             for c in range(self.n):
-                #two posiblitlies, element in state is a byte or a word(of n bytes)
                 rows[r] ^= self.tables[c][state[r*self.n + c]]
         rtn = [] 
         for r in range(self.n):
