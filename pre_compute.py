@@ -18,17 +18,27 @@ class Matrix:
         for c in range(8):
             if b & 1:
                 p ^= a
+            carry = a & 0x80
             a <<= 1
-            if a & 0x100:
+            if carry:
                 a ^= 0x11b
             b >>= 1
         return p
+    
+    @staticmethod
+    def getRc(x, n):
+        return (x//n, x%n)
+
+    @staticmethod
+    def getX(r,c,n):
+        return r*n + c 
+
 
 
 class FastMultiply:
     #we assume the user will use multiply like: state * mc 
     #so the user must be smart about mc he may need to transpose before inputing
-    def __init__(self, mc:List[int], n:int):
+    def __init__(self, mc:List[int],sbox:List[int], n:int):
         #we want mc to be on the left always and we assume that plaintext is given in a row-wise 
         #solve a row at a time
         self.mc = mc 
@@ -40,15 +50,18 @@ class FastMultiply:
                 tmp = [] 
                 for c in range(self.n):#take the row of the mc
                     con = self.mc[t*self.n + c]
-                    tmp.append(Matrix.gmul(num,con))
+                    tmp.append(Matrix.gmul(sbox[num],con))
                 self.tables[t][num] = int.from_bytes(bytes(tmp), "big")
-
 
     #solve a word at a time 
     def multiply(self, state:List[int]):
         #NOTE: this means state * mc NOT mc * state 
         rows = [0]*self.n #n words 
         for r in range(self.n):
+            #store (be acc) 4 tmp variables each one bytes in one contiguous array
+            #acc^=self.tables[c][state[r*self.n+c]]
+            #after the c for loop
+            #update the state acorrdingly
             for c in range(self.n):
                 rows[r] ^= self.tables[c][state[r*self.n + c]]
         rtn = [] 
@@ -56,35 +69,11 @@ class FastMultiply:
             rtn.extend(list(rows[r].to_bytes(self.n, "big")))
         return rtn
 
-arr1 = [
-    0xd4, 0xe0, 0xb8, 0x1e,
-    0xbf, 0xb4, 0x41, 0x27,
-    0x5d, 0x52, 0x11, 0x98,
-    0x30, 0xae, 0xf1, 0xe5
-]
+"""
+SHOULD HAVE ANOTHER CLASS CALLED COMPILER 
 
-#expected value after mix columns
-arr2 = [
-    0x04, 0xe0, 0x48, 0x28,
-    0x66, 0xcb, 0xf8, 0x06,
-    0x81, 0x19, 0xd3, 0x26,
-    0xe5, 0x9a, 0x7a, 0x4c
-]
+what the compiler will do is:
 
-mix_col_matrix = [
-    0x02, 0x03, 0x01, 0x01,
-    0x01, 0x02, 0x03, 0x01,
-    0x01, 0x01, 0x02, 0x03,
-    0x03, 0x01, 0x01, 0x02
-]
-n = 4
-mc = mix_col_matrix
-state = arr1
-Matrix.transpose(mc,n)
-Matrix.transpose(state,n)
-fm = FastMultiply(mc,n)
-rtn = fm.multiply(state)
-Matrix.transpose(rtn, n)
-print(rtn)
-assert rtn == arr2
 
+
+"""
