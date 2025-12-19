@@ -1,17 +1,7 @@
-"""
-TEST VECTOR:
-
-PLAIN TEXT VERSION  (pt_bitsize, key_bitsize)
-plaintext = [0x32, 0x43, 0xf6, 0xa8, 0x88, 0x5a, 0x30, 0x8d, 0x31, 0x31, 0x98, 0xa2, 0xe0, 0x37, 0x07, 0x34] 
-key = [0x2b, 0x7e, 0x15, 0x16, 0x28, 0xae, 0xd2, 0xa6, 0xab, 0xf7, 0x15, 0x88, 0x09, 0xcf, 0x4f, 0x3c] 
-ciphertext = [0x39, 0x25, 0x84, 0x1d, 0x2, 0xdc, 0x9, 0xfb, 0xdc, 0x11, 0x85, 0x97, 0x19, 0x6a, 0xb, 0x32]
-
-"""
-
 import struct
 
 from pre_compute import Matrix, FastMultiply
-from variable_manager import transpose, matrixRotLeft, reassign
+from variable_manager import transpose, matrixRotLeft, reassign, VariableManager
 from collections import deque 
 
 class AES_KEY_EXPANSION:
@@ -20,34 +10,53 @@ class AES_KEY_EXPANSION:
         self.round = rounds 
         self.nk = nk 
         self.mem = deque()
-        self.vals = [0]*(nk*4)
+        #self.vals = [0]*(nk*4)
         self.sbox = sbox 
         self.rcon = rcon
         self.j = 0  
+        self.vm = VariableManager(nk*4)
+    #we want to get 
+    def get_state_indexes(self):
+        #store the indexes only for now 
+        idxs = []
+        for _ in range(4):
+            idxs.extend(self.get_key())
+        return idxs 
     def get_key(self):#jth word
         if self.j <self.nk: 
-            self.vals[self.j*4:self.j*4+4] = self.key[self.j*4:self.j*4+4]
+            for i in range(self.j*4, self.j*4+4): self.vm.set_val(i,self.key[i])
+            #self.vals[self.j*4:self.j*4+4] = self.key[self.j*4:self.j*4+4]
             self.mem.extend(list(range(self.j*4, self.j*4+4)))
             self.j+=1 
-            return self.key[(self.j-1)*4:(self.j-1)*4+4]
+            return list(range(self.j*4-4, self.j*4))#[self.vm.get_val(i) for i in range((self.j-1)*4, (self.j-1)*4+4)] 
+            #self.key[(self.j-1)*4:(self.j-1)*4+4]
         discard_vars = [self.mem.popleft() for _ in range(4)]
         tmp_vars = [self.mem[-1*i] for i in range(4,0,-1)]
         if self.j%self.nk == 0:
-            tmp_vars.append(tmp_vars.pop(0))
-            self.vals[discard_vars[0]]^=self.sbox[self.vals[tmp_vars[0]]]^self.rcon[self.j//self.nk]
+            tmp_vars.append(tmp_vars.pop(0))#this it the rotation of previous word
+            self.vm.set_val(discard_vars[0], self.vm.get_val(discard_vars[0])^ self.sbox[self.vm.get_val(tmp_vars[0])] ^ self.rcon[self.j//self.nk])
+            #self.vals[discard_vars[0]]^=self.sbox[self.vals[tmp_vars[0]]]^self.rcon[self.j//self.nk]
             for i in range(1, 4):
-                self.vals[discard_vars[i]]^=self.sbox[self.vals[tmp_vars[i]]]
+                self.vm.set_val(discard_vars[i], self.sbox[self.vm.get_val(tmp_vars[i])]^ self.vm.get_val(discard_vars[i]))
+                #self.vals[discard_vars[i]]^=self.sbox[self.vals[tmp_vars[i]]]
         elif self.nk>6 and self.j % self.nk==4:#special case for 256 bit key
             for i in range(4):
-                self.vals[discard_vars[i]]^=self.sbox[self.vals[tmp_vars[i]]]
+                #self.vals[discard_vars[i]]^=self.sbox[self.vals[tmp_vars[i]]]
+                self.vm.set_val(discard_vars[i], self.sbox[self.vm.get_val(tmp_vars[i])] ^ self.vm.get_val(discard_vars[i]))
         else:
             for i in range(4):
-                self.vals[discard_vars[i]]^= self.vals[tmp_vars[i]]
+                #self.vals[discard_vars[i]]^= self.vals[tmp_vars[i]]
+                self.vm.set_val(discard_vars[i], self.vm.get_val(discard_vars[i])^self.vm.get_val(tmp_vars[i]))
         self.mem.extend(discard_vars)
         self.j+=1 
-        return [self.vals[d] for d in discard_vars]
+        return discard_vars#[self.vm.get_val(d) for d in discard_vars]#[self.vals[d] for d in discard_vars]
 
-
+"""
+GOAL:
+Have only three highly compact Variable_Manager objects
+One for the FastMultiply(16 bytes), AES_KEY_EXPANSION(self.nk*4 bytes), 
+and the State (16 bytes) 
+"""
 class AES_ENCRYPTION: #for now it is assumed (128,128) configuration only 
     
     def __init__(self):
@@ -94,27 +103,33 @@ class AES_ENCRYPTION: #for now it is assumed (128,128) configuration only
         return [self.sbox[word[i]] for i in range(4)]
     def word_xor(self, a,b):
         return [a[i]^b[i] for i in range(len(a))]
-    def sub_cell(self, a):
-        return [self.sbox[c] for c in a]
-    def shift_rows(self,a):
-        b = reassign(transpose(4), reassign(matrixRotLeft(4), transpose(4)))
-        return reassign(a, b)
-    def add_round_key(self, t):
-        for i in range(4): 
-            t[i*4:i*4 + 4] = self.word_xor(t[i*4:i*4+4], self.ek.get_key())
+    def sub_cell(self, state:VariableManager):
+        for i in range(state.n):
+            state.set_val(i, self.sbox[state.get_val(i)])
+        #return [self.sbox[c] for c in a]
+    def shift_rows(self,state:VariableManager):
+        prr = reassign(transpose(4), reassign(matrixRotLeft(4), transpose(4)))
+        state.set_perm(prr)
+    def add_round_key(self, state:VariableManager,ek: AES_KEY_EXPANSION):
+        ek_vm_ids = ek.get_state_indexes()
+        for i in range(16):
+            state.set_val(i, state.get_val(i) ^ ek.vm.get_val(ek_vm_ids[i]))
+        
     def encrypt(self,key, a):
         self.set_params(key)
-        self.ek = AES_KEY_EXPANSION(key,self.rounds,self.nk,self.sbox,self.rcon)
-        self.add_round_key(a)
+        ek = AES_KEY_EXPANSION(key,self.rounds,self.nk,self.sbox,self.rcon)
+        state = VariableManager(16)
+        for i in range(len(a)): state.set_val(i,a[i])
+        self.add_round_key(state, ek)
         for _ in range(1, self.rounds):
-            t = self.shift_rows(a) #should only variable change in implmentation will cost nothing
-            t = self.fm.multiply(t)#change to variable multiply instead to capilalizt on that 
-            self.add_round_key(t)
-            a = t.copy()
-        t = self.shift_rows(a)
-        t = self.sub_cell(t)
-        self.add_round_key(t)            
-        return t
+            self.shift_rows(state)
+            self.fm.multiply(state)
+            self.add_round_key(state, ek)#
+        self.shift_rows(state)
+        self.sub_cell(state)
+        self.add_round_key(state, ek)     
+        state.reassign()       
+        return [b for b in state.vals]
 
     
 plaintext = [0x32, 0x43, 0xf6, 0xa8, 0x88, 0x5a, 0x30, 0x8d, 0x31, 0x31, 0x98, 0xa2, 0xe0, 0x37, 0x07, 0x34] 

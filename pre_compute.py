@@ -4,7 +4,7 @@ Give me a fast way to compute the matrix multiplication.
 """
 
 from typing import List
-
+from variable_manager import VariableManager
 
 class Matrix:
     @staticmethod
@@ -33,11 +33,8 @@ class Matrix:
     def getX(r,c,n):
         return r*n + c 
 
-
-
 class FastMultiply:
-    #we assume the user will use multiply like: state * mc 
-    #so the user must be smart about mc he may need to transpose before inputing
+    
     def __init__(self, mc:List[int],sbox:List[int], n:int):
         #we want mc to be on the left always and we assume that plaintext is given in a row-wise 
         #solve a row at a time
@@ -54,26 +51,23 @@ class FastMultiply:
                 self.tables[t][num] = int.from_bytes(bytes(tmp), "big")
 
     #solve a word at a time 
-    def multiply(self, state:List[int]):
-        #NOTE: this means state * mc NOT mc * state 
-        rows = [0]*self.n #n words 
+    #NOTE: this means state * mc NOT mc * state 
+    def multiply(self, state:VariableManager):
+        other = VariableManager(self.n)#array of 32bit objects
         for r in range(self.n):
-            #store (be acc) 4 tmp variables each one bytes in one contiguous array
-            #acc^=self.tables[c][state[r*self.n+c]]
-            #after the c for loop
-            #update the state acorrdingly
             for c in range(self.n):
-                rows[r] ^= self.tables[c][state[r*self.n + c]]
-        rtn = [] 
-        for r in range(self.n):
-            rtn.extend(list(rows[r].to_bytes(self.n, "big")))
-        return rtn
-
+                other.set_val(r, other.get_val(r)^self.tables[c][state.get_val(r*self.n + c)])
+        state.load_values(other)
+        #optimize for good COMPILED performance later 
+        
 """
+
+MULTIPLY:
+each hm[i][j] is a 32 bit word
+hm[0][b0]^hm[1][b1]^hm[2][b2]^hm[3][b3] = [c0, c1, c2, c3]
+hm[0][b4]^hm[1][b5]^hm[2][b6]^hm[3][b7] = [c4, c5, c6, c7]
+hm[0][b8]^hm[1][b9]^hm[2][b10]^hm[3][b11] = [c8, c9, c10, c11]
+hm[0][b12]^hm[1][b13]^hm[2][b14]^hm[3][b15] = [c12, c13, c14, c15]
+
 SHOULD HAVE ANOTHER CLASS CALLED COMPILER 
-
-what the compiler will do is:
-
-
-
 """
