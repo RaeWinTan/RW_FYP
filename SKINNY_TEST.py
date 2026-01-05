@@ -56,15 +56,19 @@ def skinny_128_128_encrypt(pt: bytes, key: bytes) -> bytes:
 
     # 6-bit LFSR round constant rc5..rc0 stored as integer bits [0..5]
     rc = 0
+    states = [] 
 
-    for _ in range(ROUNDS):
+    for rd in range(ROUNDS):
+        tmp = [] 
         # ---- SubCells ----
         for i in range(16):
             state[i] = S8[state[i]]
-
+        tmp.append(state.copy())
         # ---- AddConstants ----
         # update rc BEFORE use each round:
-        # (rc5 rc4 rc3 rc2 rc1 rc0) <- (rc4 rc3 rc2 rc1 rc0 rc5^rc4^1)
+        # (rc5 rc4 rc3 rc2 rc1 rc0) <- (rc4 rc3 rc2 rc1 rc0 rc5^rc4^1)#permute it
+        #[rc5,rc4rc3,rc2,rc1,rc0] = 
+        #[rc4, rc3, rc2, rc1, rc0, rc5^rc4^1]
         rc0 = (rc >> 0) & 1
         rc1 = (rc >> 1) & 1
         rc2 = (rc >> 2) & 1
@@ -73,7 +77,7 @@ def skinny_128_128_encrypt(pt: bytes, key: bytes) -> bytes:
         rc5 = (rc >> 5) & 1
         n_rc0 = rc5 ^ rc4 ^ 1
         rc = ((n_rc0 << 0) | (rc0 << 1) | (rc1 << 2) | (rc2 << 3) | (rc3 << 4) | (rc4 << 5)) & 0x3F
-
+        print(rd,bin(rc))
         # For s=8:
         # c0 = 0000 rc3 rc2 rc1 rc0
         # c1 = 000000 rc5 rc4
@@ -86,12 +90,13 @@ def skinny_128_128_encrypt(pt: bytes, key: bytes) -> bytes:
         state[4]  ^= c1
         state[8]  ^= c2
         # state[12] ^= 0
+        tmp.append(state.copy())
 
         # ---- AddRoundTweakey (z=1 => TK1 only; XOR first 2 rows) ----
         # first two rows = indices 0..7
         for i in range(8):
             state[i] ^= tk1[i]
-
+        tmp.append(state.copy())
         # ---- ShiftRows (inline) ----
         old = state[:]  # 16 bytes
         state[0]  = old[P_SR[0]]
@@ -110,7 +115,7 @@ def skinny_128_128_encrypt(pt: bytes, key: bytes) -> bytes:
         state[13] = old[P_SR[13]]
         state[14] = old[P_SR[14]]
         state[15] = old[P_SR[15]]
-
+        tmp.append(state.copy())
         # ---- MixColumns (per column) ----
         # [a0,a1,a2,a3] -> [a0^a2^a3, a0, a1^a2, a0^a2]
         for c in range(4):
@@ -122,7 +127,7 @@ def skinny_128_128_encrypt(pt: bytes, key: bytes) -> bytes:
             state[4 + c]  = a0 & 0xFF
             state[8 + c]  = (a1 ^ a2) & 0xFF
             state[12 + c] = (a0 ^ a2) & 0xFF
-
+        tmp.append(state.copy())
         # ---- Update TK1 for next round: TK1 <- Permute(TK1) (inline) ----
         oldtk = tk1[:]
         tk1[0]  = oldtk[PT[0]]
@@ -141,6 +146,13 @@ def skinny_128_128_encrypt(pt: bytes, key: bytes) -> bytes:
         tk1[13] = oldtk[PT[13]]
         tk1[14] = oldtk[PT[14]]
         tk1[15] = oldtk[PT[15]]
+        states.append(tmp)
+    
+    with open("output.txt", "w") as f:
+        for rd in range(len(states)):
+            f.write(f"ROUND: {rd}\n")
+            for val in states[rd]:
+                f.write(", ".join([hex(v) for v in val])+"\n")
 
     return bytes(state)
 
@@ -149,8 +161,10 @@ def skinny_128_128_encrypt(pt: bytes, key: bytes) -> bytes:
 # Test vector from your screenshot
 # -----------------------------
 if __name__ == "__main__":
-    key = bytes.fromhex("4f55cfb0520cac52fd92c15f37073e93")
-    pt  = bytes.fromhex("f20adb0eb08b648a3b2eeed1f0adda14")
-    ct  = skinny_128_128_encrypt(pt, key).hex()
-    print("Ciphertext:", ct)
+    pt = [0xf2, 0x0a, 0xdb, 0x0e, 0xb0, 0x8b, 0x64, 0x8a, 0x3b, 0x2e, 0xee, 0xd1, 0xf0, 0xad, 0xda, 0x14]
+    key = [0x4f, 0x55, 0xcf, 0xb0, 0x52, 0x0c, 0xac, 0x52, 0xfd, 0x92, 0xc1, 0x5f, 0x37, 0x07, 0x3e, 0x93]
+    ciphertext = [0x22, 0xff, 0x30, 0xd4, 0x98, 0xea, 0x62, 0xd7, 0xe4, 0x5b, 0x47, 0x6e, 0x33, 0x67, 0x5b, 0x74] 
+    ct  = [hex(b) for b in skinny_128_128_encrypt(pt, key)]
+    print("Ciphertext:", list(ct))
+    print(all([ct[i]==hex(ciphertext[i]) for i in range(len(ct))]))
     # expected: 22ff30d498ea62d7e45b476e33675b74

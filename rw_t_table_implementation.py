@@ -10,14 +10,12 @@ class AES_KEY_EXPANSION:
         self.round = rounds 
         self.nk = nk 
         self.mem = deque()
-        #self.vals = [0]*(nk*4)
         self.sbox = sbox 
         self.rcon = rcon
         self.j = 0  
         self.vm = VariableManager(nk*4)
-    #we want to get 
+
     def get_state_indexes(self):
-        #store the indexes only for now 
         idxs = []
         for _ in range(4):
             idxs.extend(self.get_key())
@@ -25,32 +23,25 @@ class AES_KEY_EXPANSION:
     def get_key(self):#jth word
         if self.j <self.nk: 
             for i in range(self.j*4, self.j*4+4): self.vm.set_val(i,self.key[i])
-            #self.vals[self.j*4:self.j*4+4] = self.key[self.j*4:self.j*4+4]
             self.mem.extend(list(range(self.j*4, self.j*4+4)))
             self.j+=1 
             return list(range(self.j*4-4, self.j*4))#[self.vm.get_val(i) for i in range((self.j-1)*4, (self.j-1)*4+4)] 
-            #self.key[(self.j-1)*4:(self.j-1)*4+4]
         discard_vars = [self.mem.popleft() for _ in range(4)]
         tmp_vars = [self.mem[-1*i] for i in range(4,0,-1)]
         if self.j%self.nk == 0:
             tmp_vars.append(tmp_vars.pop(0))#this it the rotation of previous word
             self.vm.set_val(discard_vars[0], self.vm.get_val(discard_vars[0])^ self.sbox[self.vm.get_val(tmp_vars[0])] ^ self.rcon[self.j//self.nk])
-            #self.vals[discard_vars[0]]^=self.sbox[self.vals[tmp_vars[0]]]^self.rcon[self.j//self.nk]
             for i in range(1, 4):
                 self.vm.set_val(discard_vars[i], self.sbox[self.vm.get_val(tmp_vars[i])]^ self.vm.get_val(discard_vars[i]))
-                #self.vals[discard_vars[i]]^=self.sbox[self.vals[tmp_vars[i]]]
         elif self.nk>6 and self.j % self.nk==4:#special case for 256 bit key
             for i in range(4):
-                #self.vals[discard_vars[i]]^=self.sbox[self.vals[tmp_vars[i]]]
                 self.vm.set_val(discard_vars[i], self.sbox[self.vm.get_val(tmp_vars[i])] ^ self.vm.get_val(discard_vars[i]))
         else:
             for i in range(4):
-                #self.vals[discard_vars[i]]^= self.vals[tmp_vars[i]]
                 self.vm.set_val(discard_vars[i], self.vm.get_val(discard_vars[i])^self.vm.get_val(tmp_vars[i]))
         self.mem.extend(discard_vars)
         self.j+=1 
-        return discard_vars#[self.vm.get_val(d) for d in discard_vars]#[self.vals[d] for d in discard_vars]
-
+        return discard_vars
 """
 GOAL:
 Have only three highly compact Variable_Manager objects
@@ -99,10 +90,6 @@ class AES_ENCRYPTION: #for now it is assumed (128,128) configuration only
             self.ek_words = 60
             self.nk = 8 
             self.rounds = 14
-    def subword(self, word):
-        return [self.sbox[word[i]] for i in range(4)]
-    def word_xor(self, a,b):
-        return [a[i]^b[i] for i in range(len(a))]
     def sub_cell(self, state:VariableManager):
         for i in range(state.n):
             state.set_val(i, self.sbox[state.get_val(i)])
@@ -115,7 +102,7 @@ class AES_ENCRYPTION: #for now it is assumed (128,128) configuration only
         for i in range(16):
             state.set_val(i, state.get_val(i) ^ ek.vm.get_val(ek_vm_ids[i]))
         
-    def encrypt(self,key, a):
+    def encrypt(self,key, a):  
         self.set_params(key)
         ek = AES_KEY_EXPANSION(key,self.rounds,self.nk,self.sbox,self.rcon)
         state = VariableManager(16)
@@ -124,17 +111,38 @@ class AES_ENCRYPTION: #for now it is assumed (128,128) configuration only
         for _ in range(1, self.rounds):
             self.shift_rows(state)
             self.fm.multiply(state)
-            self.add_round_key(state, ek)#
-        self.shift_rows(state)
+            self.add_round_key(state, ek)
         self.sub_cell(state)
+        self.shift_rows(state)
         self.add_round_key(state, ek)     
         state.reassign()       
         return [b for b in state.vals]
+"""
 
-    
+add 
+shift 
+mul 
+
+add 
+sft 
+sub 
+add 
+
+"""
+test = reassign(transpose(4), reassign(matrixRotLeft(4), transpose(4)))
+test = reassign(transpose(4), reassign(test, test))
+print(test)
+test = reassign(test, [0,1,2,3, 6,7,4,5, 8,9,10,11, 14,15,12, 13])
+print(test)
+"""
+0: good 
+1: >> 2[0, 6, 8, 14, 9, 15, 1, 7, 2, 4, 10, 12, 11, 13, 3, 5][0, 6, 8, 14, 9, 15, 1, 7, 2, 4, 10, 12, 11, 13, 3, 5]
+2: good 
+3: >> 2
+"""
 plaintext = [0x32, 0x43, 0xf6, 0xa8, 0x88, 0x5a, 0x30, 0x8d, 0x31, 0x31, 0x98, 0xa2, 0xe0, 0x37, 0x07, 0x34] 
 key = [0x2b, 0x7e, 0x15, 0x16, 0x28, 0xae, 0xd2, 0xa6, 0xab, 0xf7, 0x15, 0x88, 0x09, 0xcf, 0x4f, 0x3c] 
 obj = AES_ENCRYPTION()
 ciphertext = [0x39, 0x25, 0x84, 0x1d, 0x2, 0xdc, 0x9, 0xfb, 0xdc, 0x11, 0x85, 0x97, 0x19, 0x6a, 0xb, 0x32]
 rtn = [hex(b) for b in obj.encrypt(key,plaintext)]
-print( all([hex(ciphertext[i])==rtn[i] for i in range(len(ciphertext))]) )
+print(rtn)
